@@ -13,6 +13,12 @@ use crate::base::storage::{
 };
 use crate::base::{Scalar, Vector};
 
+#[cfg(feature = "serde-serialize-no-std")]
+use serde::{
+    de::{Deserialize, Deserializer, Error},
+    ser::{Serialize, Serializer},
+};
+
 #[cfg(feature = "abomonation-serialize")]
 use abomonation::Abomonation;
 
@@ -24,11 +30,52 @@ use abomonation::Abomonation;
 /// A Vec-based matrix data storage. It may be dynamically-sized.
 #[repr(C)]
 #[derive(Eq, Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct VecStorage<T, R: Dim, C: Dim> {
     data: Vec<T>,
     nrows: R,
     ncols: C,
+}
+
+#[cfg(feature = "serde-serialize")]
+impl<T, R: Dim, C: Dim> Serialize for VecStorage<T, R, C>
+where
+    T: Serialize,
+    R: Serialize,
+    C: Serialize,
+{
+    fn serialize<Ser>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error>
+    where
+        Ser: Serializer,
+    {
+        (&self.data, &self.nrows, &self.ncols).serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde-serialize")]
+impl<'a, T, R: Dim, C: Dim> Deserialize<'a> for VecStorage<T, R, C>
+where
+    T: Deserialize<'a>,
+    R: Deserialize<'a>,
+    C: Deserialize<'a>,
+{
+    fn deserialize<Des>(deserializer: Des) -> Result<Self, Des::Error>
+    where
+        Des: Deserializer<'a>,
+    {
+        let (data, nrows, ncols): (Vec<T>, R, C) = Deserialize::deserialize(deserializer)?;
+
+        // SAFETY: make sure the data we deserialize have the
+        //         correct number of elements.
+        if nrows.value() * ncols.value() != data.len() {
+            return Err(Des::Error::custom(format!(
+                "Expected {} components, found {}",
+                nrows.value() * ncols.value(),
+                data.len()
+            )));
+        }
+
+        Ok(Self { data, nrows, ncols })
+    }
 }
 
 #[deprecated(note = "renamed to `VecStorage`")]
@@ -48,12 +95,14 @@ impl<T, R: Dim, C: Dim> VecStorage<T, R, C> {
 
     /// The underlying data storage.
     #[inline]
+    #[must_use]
     pub fn as_vec(&self) -> &Vec<T> {
         &self.data
     }
 
     /// The underlying mutable data storage.
     ///
+    /// # Safety
     /// This is unsafe because this may cause UB if the size of the vector is changed
     /// by the user.
     #[inline]
@@ -63,6 +112,7 @@ impl<T, R: Dim, C: Dim> VecStorage<T, R, C> {
 
     /// Resizes the underlying mutable data storage and unwraps it.
     ///
+    /// # Safety
     /// If `sz` is larger than the current size, additional elements are uninitialized.
     /// If `sz` is smaller than the current size, additional elements are truncated.
     #[inline]
@@ -82,20 +132,22 @@ impl<T, R: Dim, C: Dim> VecStorage<T, R, C> {
 
     /// The number of elements on the underlying vector.
     #[inline]
+    #[must_use]
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Returns true if the underlying vector contains no elements.
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 }
 
-impl<T, R: Dim, C: Dim> Into<Vec<T>> for VecStorage<T, R, C> {
-    fn into(self) -> Vec<T> {
-        self.data
+impl<T, R: Dim, C: Dim> From<VecStorage<T, R, C>> for Vec<T> {
+    fn from(vec: VecStorage<T, R, C>) -> Self {
+        vec.data
     }
 }
 
@@ -149,7 +201,7 @@ where
     }
 
     #[inline]
-    fn as_slice(&self) -> &[T] {
+    unsafe fn as_slice_unchecked(&self) -> &[T] {
         &self.data
     }
 }
@@ -198,7 +250,7 @@ where
     }
 
     #[inline]
-    fn as_slice(&self) -> &[T] {
+    unsafe fn as_slice_unchecked(&self) -> &[T] {
         &self.data
     }
 }
@@ -218,7 +270,7 @@ where
     }
 
     #[inline]
-    fn as_mut_slice(&mut self) -> &mut [T] {
+    unsafe fn as_mut_slice_unchecked(&mut self) -> &mut [T] {
         &mut self.data[..]
     }
 }
@@ -279,7 +331,7 @@ where
     }
 
     #[inline]
-    fn as_mut_slice(&mut self) -> &mut [T] {
+    unsafe fn as_mut_slice_unchecked(&mut self) -> &mut [T] {
         &mut self.data[..]
     }
 }

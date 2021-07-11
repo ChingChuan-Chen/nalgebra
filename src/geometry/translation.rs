@@ -38,7 +38,7 @@ where
     }
 }
 
-impl<T: Scalar + Copy, const D: usize> Copy for Translation<T, D> where Owned<T, Const<D>>: Copy {}
+impl<T: Scalar + Copy, const D: usize> Copy for Translation<T, D> {}
 
 impl<T: Scalar, const D: usize> Clone for Translation<T, D>
 where
@@ -97,6 +97,49 @@ where
     }
 }
 
+#[cfg(feature = "rkyv-serialize-no-std")]
+mod rkyv_impl {
+    use super::Translation;
+    use crate::base::SVector;
+    use rkyv::{offset_of, project_struct, Archive, Deserialize, Fallible, Serialize};
+
+    impl<T: Archive, const D: usize> Archive for Translation<T, D> {
+        type Archived = Translation<T::Archived, D>;
+        type Resolver = <SVector<T, D> as Archive>::Resolver;
+
+        fn resolve(
+            &self,
+            pos: usize,
+            resolver: Self::Resolver,
+            out: &mut core::mem::MaybeUninit<Self::Archived>,
+        ) {
+            self.vector.resolve(
+                pos + offset_of!(Self::Archived, vector),
+                resolver,
+                project_struct!(out: Self::Archived => vector),
+            );
+        }
+    }
+
+    impl<T: Serialize<S>, S: Fallible + ?Sized, const D: usize> Serialize<S> for Translation<T, D> {
+        fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+            self.vector.serialize(serializer)
+        }
+    }
+
+    impl<T: Archive, _D: Fallible + ?Sized, const D: usize> Deserialize<Translation<T, D>, _D>
+        for Translation<T::Archived, D>
+    where
+        T::Archived: Deserialize<T, _D>,
+    {
+        fn deserialize(&self, deserializer: &mut _D) -> Result<Translation<T, D>, _D::Error> {
+            Ok(Translation {
+                vector: self.vector.deserialize(deserializer)?,
+            })
+        }
+    }
+}
+
 impl<T: Scalar, const D: usize> Translation<T, D> {
     /// Creates a new translation from the given vector.
     #[inline]
@@ -147,6 +190,7 @@ impl<T: Scalar, const D: usize> Translation<T, D> {
     /// assert_eq!(t.to_homogeneous(), expected);
     /// ```
     #[inline]
+    #[must_use]
     pub fn to_homogeneous(&self) -> OMatrix<T, DimNameSum<Const<D>, U1>, DimNameSum<Const<D>, U1>>
     where
         T: Zero + One,
@@ -198,6 +242,7 @@ impl<T: Scalar + ClosedAdd, const D: usize> Translation<T, D> {
     /// let transformed_point = t.transform_point(&Point3::new(4.0, 5.0, 6.0));
     /// assert_eq!(transformed_point, Point3::new(5.0, 7.0, 9.0));
     #[inline]
+    #[must_use]
     pub fn transform_point(&self, pt: &Point<T, D>) -> Point<T, D> {
         pt + &self.vector
     }
@@ -213,6 +258,7 @@ impl<T: Scalar + ClosedSub, const D: usize> Translation<T, D> {
     /// let transformed_point = t.inverse_transform_point(&Point3::new(4.0, 5.0, 6.0));
     /// assert_eq!(transformed_point, Point3::new(3.0, 3.0, 3.0));
     #[inline]
+    #[must_use]
     pub fn inverse_transform_point(&self, pt: &Point<T, D>) -> Point<T, D> {
         pt - &self.vector
     }

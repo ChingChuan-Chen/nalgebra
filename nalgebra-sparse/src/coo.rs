@@ -20,7 +20,7 @@ use crate::SparseFormatError;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use nalgebra_sparse::{coo::CooMatrix, csr::CsrMatrix, csc::CscMatrix};
 ///
 /// // Initialize a matrix with all zeros (no explicitly stored entries).
@@ -43,6 +43,43 @@ pub struct CooMatrix<T> {
     row_indices: Vec<usize>,
     col_indices: Vec<usize>,
     values: Vec<T>,
+}
+
+impl<T: na::Scalar> CooMatrix<T> {
+    /// Pushes a dense matrix into the sparse one.
+    ///
+    /// This adds the dense matrix `m` starting at the `r`th row and `c`th column
+    /// to the matrix.
+    ///
+    /// Panics
+    /// ------
+    ///
+    /// Panics if any part of the dense matrix is out of bounds of the sparse matrix
+    /// when inserted at `(r, c)`.
+    #[inline]
+    pub fn push_matrix<R: na::Dim, C: na::Dim, S: nalgebra::storage::Storage<T, R, C>>(
+        &mut self,
+        r: usize,
+        c: usize,
+        m: &na::Matrix<T, R, C, S>,
+    ) {
+        let block_nrows = m.nrows();
+        let block_ncols = m.ncols();
+        let max_row_with_block = r + block_nrows - 1;
+        let max_col_with_block = c + block_ncols - 1;
+        assert!(max_row_with_block < self.nrows);
+        assert!(max_col_with_block < self.ncols);
+
+        self.reserve(block_ncols * block_nrows);
+
+        for (col_idx, col) in m.column_iter().enumerate() {
+            for (row_idx, v) in col.iter().enumerate() {
+                self.row_indices.push(r + row_idx);
+                self.col_indices.push(c + col_idx);
+                self.values.push(v.clone());
+            }
+        }
+    }
 }
 
 impl<T> CooMatrix<T> {
@@ -130,6 +167,30 @@ impl<T> CooMatrix<T> {
             .map(|((i, j), v)| (*i, *j, v))
     }
 
+    /// Reserves capacity for COO matrix by at least `additional` elements.
+    ///
+    /// This increase the capacities of triplet holding arrays by reserving more space to avoid
+    /// frequent reallocations in `push` operations.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if any of the individual allocation of triplet arrays fails.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use nalgebra_sparse::coo::CooMatrix;
+    /// let mut coo = CooMatrix::new(4, 4);
+    /// // Reserve capacity in advance
+    /// coo.reserve(10);
+    /// coo.push(1, 0, 3.0);
+    /// ```
+    pub fn reserve(&mut self, additional: usize) {
+        self.row_indices.reserve(additional);
+        self.col_indices.reserve(additional);
+        self.values.reserve(additional);
+    }
+
     /// Push a single triplet to the matrix.
     ///
     /// This adds the value `v` to the `i`th row and `j`th column in the matrix.
@@ -149,12 +210,14 @@ impl<T> CooMatrix<T> {
 
     /// The number of rows in the matrix.
     #[inline]
+    #[must_use]
     pub fn nrows(&self) -> usize {
         self.nrows
     }
 
     /// The number of columns in the matrix.
     #[inline]
+    #[must_use]
     pub fn ncols(&self) -> usize {
         self.ncols
     }
@@ -165,21 +228,25 @@ impl<T> CooMatrix<T> {
     /// entries, then it may have a different number of non-zeros as reported by `nnz()` compared
     /// to its CSR representation.
     #[inline]
+    #[must_use]
     pub fn nnz(&self) -> usize {
         self.values.len()
     }
 
     /// The row indices of the explicitly stored entries.
+    #[must_use]
     pub fn row_indices(&self) -> &[usize] {
         &self.row_indices
     }
 
     /// The column indices of the explicitly stored entries.
+    #[must_use]
     pub fn col_indices(&self) -> &[usize] {
         &self.col_indices
     }
 
     /// The values of the explicitly stored entries.
+    #[must_use]
     pub fn values(&self) -> &[T] {
         &self.values
     }

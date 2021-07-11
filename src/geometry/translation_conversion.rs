@@ -11,6 +11,7 @@ use crate::geometry::{
     AbstractRotation, Isometry, Similarity, SuperTCategoryOf, TAffine, Transform, Translation,
     Translation3, UnitDualQuaternion, UnitQuaternion,
 };
+use crate::Point;
 
 /*
  * This file provides the following conversions:
@@ -76,7 +77,7 @@ where
 {
     #[inline]
     fn to_superset(&self) -> UnitDualQuaternion<T2> {
-        let dq = UnitDualQuaternion::<T1>::from_parts(self.clone(), UnitQuaternion::identity());
+        let dq = UnitDualQuaternion::<T1>::from_parts(*self, UnitQuaternion::identity());
         dq.to_superset()
     }
 
@@ -196,6 +197,29 @@ impl<T: Scalar, const D: usize> From<OVector<T, Const<D>>> for Translation<T, D>
     #[inline]
     fn from(vector: OVector<T, Const<D>>) -> Self {
         Translation { vector }
+    }
+}
+
+impl<T: Scalar, const D: usize> From<[T; D]> for Translation<T, D> {
+    #[inline]
+    fn from(coords: [T; D]) -> Self {
+        Translation {
+            vector: coords.into(),
+        }
+    }
+}
+
+impl<T: Scalar, const D: usize> From<Point<T, D>> for Translation<T, D> {
+    #[inline]
+    fn from(pt: Point<T, D>) -> Self {
+        Translation { vector: pt.coords }
+    }
+}
+
+impl<T: Scalar, const D: usize> From<Translation<T, D>> for [T; D] {
+    #[inline]
+    fn from(t: Translation<T, D>) -> Self {
+        t.vector.into()
     }
 }
 

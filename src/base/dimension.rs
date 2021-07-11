@@ -20,7 +20,7 @@ pub struct Dynamic {
 impl Dynamic {
     /// A dynamic size equal to `value`.
     #[inline]
-    pub fn new(value: usize) -> Self {
+    pub const fn new(value: usize) -> Self {
         Self { value }
     }
 }
@@ -228,6 +228,37 @@ impl<'de, const D: usize> Deserialize<'de> for Const<D> {
         Des: Deserializer<'de>,
     {
         <()>::deserialize(deserializer).map(|_| Const::<D>)
+    }
+}
+
+#[cfg(feature = "rkyv-serialize-no-std")]
+mod rkyv_impl {
+    use super::Const;
+    use rkyv::{Archive, Deserialize, Fallible, Serialize};
+
+    impl<const R: usize> Archive for Const<R> {
+        type Archived = Self;
+        type Resolver = ();
+
+        fn resolve(
+            &self,
+            _: usize,
+            _: Self::Resolver,
+            _: &mut core::mem::MaybeUninit<Self::Archived>,
+        ) {
+        }
+    }
+
+    impl<S: Fallible + ?Sized, const R: usize> Serialize<S> for Const<R> {
+        fn serialize(&self, _: &mut S) -> Result<Self::Resolver, S::Error> {
+            Ok(())
+        }
+    }
+
+    impl<D: Fallible + ?Sized, const R: usize> Deserialize<Self, D> for Const<R> {
+        fn deserialize(&self, _: &mut D) -> Result<Self, D::Error> {
+            Ok(Const)
+        }
     }
 }
 

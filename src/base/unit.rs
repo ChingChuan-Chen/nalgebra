@@ -1,6 +1,5 @@
 #[cfg(feature = "abomonation-serialize")]
 use std::io::{Result as IOResult, Write};
-use std::mem;
 use std::ops::Deref;
 
 #[cfg(feature = "serde-serialize-no-std")]
@@ -68,6 +67,47 @@ impl<T: Abomonation> Abomonation for Unit<T> {
 
     unsafe fn exhume<'a, 'b>(&'a mut self, bytes: &'b mut [u8]) -> Option<&'b mut [u8]> {
         self.value.exhume(bytes)
+    }
+}
+
+#[cfg(feature = "rkyv-serialize-no-std")]
+mod rkyv_impl {
+    use super::Unit;
+    use rkyv::{offset_of, project_struct, Archive, Deserialize, Fallible, Serialize};
+
+    impl<T: Archive> Archive for Unit<T> {
+        type Archived = Unit<T::Archived>;
+        type Resolver = T::Resolver;
+
+        fn resolve(
+            &self,
+            pos: usize,
+            resolver: Self::Resolver,
+            out: &mut ::core::mem::MaybeUninit<Self::Archived>,
+        ) {
+            self.value.resolve(
+                pos + offset_of!(Self::Archived, value),
+                resolver,
+                project_struct!(out: Self::Archived => value),
+            );
+        }
+    }
+
+    impl<T: Serialize<S>, S: Fallible + ?Sized> Serialize<S> for Unit<T> {
+        fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+            self.value.serialize(serializer)
+        }
+    }
+
+    impl<T: Archive, D: Fallible + ?Sized> Deserialize<Unit<T>, D> for Unit<T::Archived>
+    where
+        T::Archived: Deserialize<T, D>,
+    {
+        fn deserialize(&self, deserializer: &mut D) -> Result<Unit<T>, D::Error> {
+            Ok(Unit {
+                value: self.value.deserialize(deserializer)?,
+            })
+        }
     }
 }
 
@@ -181,14 +221,14 @@ impl<T: Normed> Unit<T> {
 impl<T> Unit<T> {
     /// Wraps the given value, assuming it is already normalized.
     #[inline]
-    pub fn new_unchecked(value: T) -> Self {
+    pub const fn new_unchecked(value: T) -> Self {
         Unit { value }
     }
 
     /// Wraps the given reference, assuming it is already normalized.
     #[inline]
-    pub fn from_ref_unchecked<'a>(value: &'a T) -> &'a Self {
-        unsafe { mem::transmute(value) }
+    pub fn from_ref_unchecked(value: &T) -> &Self {
+        unsafe { &*(value as *const T as *const Self) }
     }
 
     /// Retrieves the underlying value.
@@ -291,7 +331,7 @@ impl<T> Deref for Unit<T> {
 
     #[inline]
     fn deref(&self) -> &T {
-        unsafe { mem::transmute(self) }
+        unsafe { &*(self as *const Self as *const T) }
     }
 }
 
